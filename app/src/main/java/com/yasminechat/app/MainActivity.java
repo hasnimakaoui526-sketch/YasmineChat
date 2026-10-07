@@ -8,17 +8,19 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.webkit.CookieManager;
+import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.webkit.PermissionRequest;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+
+import java.util.ArrayList;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -60,17 +62,17 @@ public class MainActivity extends AppCompatActivity {
 
                 runOnUiThread(() -> {
 
-                    boolean needAudio = false;
-                    boolean needCamera = false;
+                    boolean audio = false;
+                    boolean camera = false;
 
                     for (String resource : request.getResources()) {
 
                         if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)) {
-                            needAudio = true;
+                            audio = true;
                         }
 
                         if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)) {
-                            needCamera = true;
+                            camera = true;
                         }
                     }
 
@@ -86,8 +88,8 @@ public class MainActivity extends AppCompatActivity {
                                     Manifest.permission.CAMERA
                             ) == PackageManager.PERMISSION_GRANTED;
 
-                    if ((!needAudio || audioGranted) &&
-                            (!needCamera || cameraGranted)) {
+                    if ((!audio || audioGranted) &&
+                            (!camera || cameraGranted)) {
 
                         request.grant(request.getResources());
 
@@ -95,7 +97,10 @@ public class MainActivity extends AppCompatActivity {
 
                         pendingPermissionRequest = request;
 
-                        requestRequiredPermissions(needAudio, needCamera);
+                        requestPermissionsForWebView(
+                                audio,
+                                camera
+                        );
                     }
                 });
             }
@@ -103,40 +108,40 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public boolean onShowFileChooser(
                     WebView webView,
-                    ValueCallback<Uri[]> filePathCallback,
-                    FileChooserParams fileChooserParams) {
+                    ValueCallback<Uri[]> callback,
+                    FileChooserParams params) {
 
-                if (MainActivity.this.filePathCallback != null) {
-                    MainActivity.this.filePathCallback.onReceiveValue(null);
+                if (filePathCallback != null) {
+                    filePathCallback.onReceiveValue(null);
                 }
 
-                MainActivity.this.filePathCallback = filePathCallback;
+                filePathCallback = callback;
 
                 Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
 
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
                 intent.setType("*/*");
-                intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-
-                String[] acceptTypes = fileChooserParams.getAcceptTypes();
-
-                if (acceptTypes != null && acceptTypes.length > 0) {
-
-                    if (acceptTypes.length == 1 && !acceptTypes[0].isEmpty()) {
-                        intent.setType(acceptTypes[0]);
-                    } else {
-                        intent.setType("*/*");
-                    }
-                }
+                intent.putExtra(
+                        Intent.EXTRA_ALLOW_MULTIPLE,
+                        true
+                );
 
                 try {
+
                     startActivityForResult(
-                            Intent.createChooser(intent, "اختيار ملف"),
+                            Intent.createChooser(
+                                    intent,
+                                    "اختيار ملف"
+                            ),
                             FILE_CHOOSER_REQUEST_CODE
                     );
+
                 } catch (Exception e) {
-                    MainActivity.this.filePathCallback.onReceiveValue(null);
-                    MainActivity.this.filePathCallback = null;
+
+                    if (filePathCallback != null) {
+                        filePathCallback.onReceiveValue(null);
+                        filePathCallback = null;
+                    }
                 }
 
                 return true;
@@ -150,30 +155,39 @@ public class MainActivity extends AppCompatActivity {
 
     private void requestInitialPermissions() {
 
-        boolean audioNeeded =
-                ContextCompat.checkSelfPermission(
-                        this,
-                        Manifest.permission.RECORD_AUDIO
-                ) != PackageManager.PERMISSION_GRANTED;
+        ArrayList<String> permissions = new ArrayList<>();
 
-        boolean cameraNeeded =
-                ContextCompat.checkSelfPermission(
-                        this,
-                        Manifest.permission.CAMERA
-                ) != PackageManager.PERMISSION_GRANTED;
+        if (ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.RECORD_AUDIO
+        ) != PackageManager.PERMISSION_GRANTED) {
 
-        if (audioNeeded || cameraNeeded) {
+            permissions.add(Manifest.permission.RECORD_AUDIO);
+        }
 
-            requestRequiredPermissions(audioNeeded, cameraNeeded);
+        if (ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.CAMERA
+        ) != PackageManager.PERMISSION_GRANTED) {
+
+            permissions.add(Manifest.permission.CAMERA);
+        }
+
+        if (!permissions.isEmpty()) {
+
+            ActivityCompat.requestPermissions(
+                    this,
+                    permissions.toArray(new String[0]),
+                    PERMISSION_REQUEST_CODE
+            );
         }
     }
 
-    private void requestRequiredPermissions(
+    private void requestPermissionsForWebView(
             boolean needAudio,
             boolean needCamera) {
 
-        java.util.ArrayList<String> permissions =
-                new java.util.ArrayList<>();
+        ArrayList<String> permissions = new ArrayList<>();
 
         if (needAudio &&
                 ContextCompat.checkSelfPermission(
@@ -215,50 +229,50 @@ public class MainActivity extends AppCompatActivity {
                 grantResults
         );
 
-        if (requestCode == PERMISSION_REQUEST_CODE) {
+        if (requestCode != PERMISSION_REQUEST_CODE) {
+            return;
+        }
 
-            if (pendingPermissionRequest != null) {
+        if (pendingPermissionRequest == null) {
+            return;
+        }
 
-                boolean audioGranted =
-                        ContextCompat.checkSelfPermission(
-                                this,
-                                Manifest.permission.RECORD_AUDIO
-                        ) == PackageManager.PERMISSION_GRANTED;
+        PermissionRequest request = pendingPermissionRequest;
+        pendingPermissionRequest = null;
 
-                boolean cameraGranted =
-                        ContextCompat.checkSelfPermission(
-                                this,
-                                Manifest.permission.CAMERA
-                        ) == PackageManager.PERMISSION_GRANTED;
+        boolean audioGranted =
+                ContextCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.RECORD_AUDIO
+                ) == PackageManager.PERMISSION_GRANTED;
 
-                boolean canGrant = true;
+        boolean cameraGranted =
+                ContextCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.CAMERA
+                ) == PackageManager.PERMISSION_GRANTED;
 
-                for (String resource :
-                        pendingPermissionRequest.getResources()) {
+        boolean allowed = true;
 
-                    if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)
-                            && !audioGranted) {
+        for (String resource : request.getResources()) {
 
-                        canGrant = false;
-                    }
+            if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)
+                    && !audioGranted) {
 
-                    if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)
-                            && !cameraGranted) {
-
-                        canGrant = false;
-                    }
-                }
-
-                if (canGrant) {
-                    pendingPermissionRequest.grant(
-                            pendingPermissionRequest.getResources()
-                    );
-                } else {
-                    pendingPermissionRequest.deny();
-                }
-
-                pendingPermissionRequest = null;
+                allowed = false;
             }
+
+            if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)
+                    && !cameraGranted) {
+
+                allowed = false;
+            }
+        }
+
+        if (allowed) {
+            request.grant(request.getResources());
+        } else {
+            request.deny();
         }
     }
 
@@ -274,40 +288,42 @@ public class MainActivity extends AppCompatActivity {
                 data
         );
 
-        if (requestCode == FILE_CHOOSER_REQUEST_CODE) {
-
-            if (filePathCallback == null) {
-                return;
-            }
-
-            Uri[] results = null;
-
-            if (resultCode == Activity.RESULT_OK && data != null) {
-
-                if (data.getClipData() != null) {
-
-                    int count = data.getClipData().getItemCount();
-
-                    results = new Uri[count];
-
-                    for (int i = 0; i < count; i++) {
-                        results[i] =
-                                data.getClipData()
-                                        .getItemAt(i)
-                                        .getUri();
-                    }
-
-                } else if (data.getData() != null) {
-
-                    results = new Uri[]{
-                            data.getData()
-                    };
-                }
-            }
-
-            filePathCallback.onReceiveValue(results);
-            filePathCallback = null;
+        if (requestCode != FILE_CHOOSER_REQUEST_CODE) {
+            return;
         }
+
+        if (filePathCallback == null) {
+            return;
+        }
+
+        Uri[] results = null;
+
+        if (resultCode == Activity.RESULT_OK && data != null) {
+
+            if (data.getClipData() != null) {
+
+                int count = data.getClipData().getItemCount();
+
+                results = new Uri[count];
+
+                for (int i = 0; i < count; i++) {
+
+                    results[i] =
+                            data.getClipData()
+                                    .getItemAt(i)
+                                    .getUri();
+                }
+
+            } else if (data.getData() != null) {
+
+                results = new Uri[]{
+                        data.getData()
+                };
+            }
+        }
+
+        filePathCallback.onReceiveValue(results);
+        filePathCallback = null;
     }
 
     @Override
@@ -323,8 +339,15 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
 
+        if (pendingPermissionRequest != null) {
+            pendingPermissionRequest.deny();
+            pendingPermissionRequest = null;
+        }
+
         if (webView != null) {
+            webView.stopLoading();
             webView.destroy();
+            webView = null;
         }
 
         super.onDestroy();
