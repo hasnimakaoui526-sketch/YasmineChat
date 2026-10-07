@@ -26,11 +26,12 @@ public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
 
-    private static final int PERMISSION_REQUEST_CODE = 1001;
-    private static final int FILE_CHOOSER_REQUEST_CODE = 1002;
+    private static final int AUDIO_PERMISSION = 2001;
+    private static final int CAMERA_PERMISSION = 2002;
+    private static final int FILE_CHOOSER = 2003;
 
-    private PermissionRequest pendingPermissionRequest;
-    private ValueCallback<Uri[]> filePathCallback;
+    private PermissionRequest pendingRequest;
+    private ValueCallback<Uri[]> fileCallback;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -62,65 +63,125 @@ public class MainActivity extends AppCompatActivity {
 
                 runOnUiThread(() -> {
 
-                    boolean audio = false;
-                    boolean camera = false;
+                    boolean wantsAudio = false;
+                    boolean wantsCamera = false;
 
                     for (String resource : request.getResources()) {
 
                         if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)) {
-                            audio = true;
+                            wantsAudio = true;
                         }
 
                         if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)) {
-                            camera = true;
+                            wantsCamera = true;
                         }
                     }
 
-                    boolean audioGranted =
+                    if (wantsAudio &&
                             ContextCompat.checkSelfPermission(
                                     MainActivity.this,
                                     Manifest.permission.RECORD_AUDIO
-                            ) == PackageManager.PERMISSION_GRANTED;
+                            ) != PackageManager.PERMISSION_GRANTED) {
 
-                    boolean cameraGranted =
+                        pendingRequest = request;
+
+                        ActivityCompat.requestPermissions(
+                                MainActivity.this,
+                                new String[]{Manifest.permission.RECORD_AUDIO},
+                                AUDIO_PERMISSION
+                        );
+
+                        return;
+                    }
+
+                    if (wantsCamera &&
                             ContextCompat.checkSelfPermission(
                                     MainActivity.this,
                                     Manifest.permission.CAMERA
-                            ) == PackageManager.PERMISSION_GRANTED;
+                            ) != PackageManager.PERMISSION_GRANTED) {
 
-                    if ((!audio || audioGranted) &&
-                            (!camera || cameraGranted)) {
+                        pendingRequest = request;
 
-                        request.grant(request.getResources());
+                        ActivityCompat.requestPermissions(
+                                MainActivity.this,
+                                new String[]{Manifest.permission.CAMERA},
+                                CAMERA_PERMISSION
+                        );
+
+                        return;
+                    }
+
+                    ArrayList<String> allowed = new ArrayList<>();
+
+                    for (String resource : request.getResources()) {
+
+                        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)
+                                && ContextCompat.checkSelfPermission(
+                                MainActivity.this,
+                                Manifest.permission.RECORD_AUDIO
+                        ) == PackageManager.PERMISSION_GRANTED) {
+
+                            allowed.add(
+                                    PermissionRequest.RESOURCE_AUDIO_CAPTURE
+                            );
+                        }
+
+                        if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)
+                                && ContextCompat.checkSelfPermission(
+                                MainActivity.this,
+                                Manifest.permission.CAMERA
+                        ) == PackageManager.PERMISSION_GRANTED) {
+
+                            allowed.add(
+                                    PermissionRequest.RESOURCE_VIDEO_CAPTURE
+                            );
+                        }
+                    }
+
+                    if (!allowed.isEmpty()) {
+
+                        request.grant(
+                                allowed.toArray(new String[0])
+                        );
 
                     } else {
 
-                        pendingPermissionRequest = request;
-
-                        requestPermissionsForWebView(
-                                audio,
-                                camera
-                        );
+                        request.deny();
                     }
                 });
             }
 
             @Override
+            public void onPermissionRequestCanceled(
+                    PermissionRequest request) {
+
+                if (pendingRequest == request) {
+                    pendingRequest = null;
+                }
+            }
+
+            @Override
             public boolean onShowFileChooser(
-                    WebView webView,
+                    WebView view,
                     ValueCallback<Uri[]> callback,
                     FileChooserParams params) {
 
-                if (filePathCallback != null) {
-                    filePathCallback.onReceiveValue(null);
+                if (fileCallback != null) {
+                    fileCallback.onReceiveValue(null);
                 }
 
-                filePathCallback = callback;
+                fileCallback = callback;
 
-                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                Intent intent = new Intent(
+                        Intent.ACTION_OPEN_DOCUMENT
+                );
 
-                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.addCategory(
+                        Intent.CATEGORY_OPENABLE
+                );
+
                 intent.setType("*/*");
+
                 intent.putExtra(
                         Intent.EXTRA_ALLOW_MULTIPLE,
                         true
@@ -131,90 +192,24 @@ public class MainActivity extends AppCompatActivity {
                     startActivityForResult(
                             Intent.createChooser(
                                     intent,
-                                    "اختيار ملف"
+                                    "اختيار صورة أو ملف"
                             ),
-                            FILE_CHOOSER_REQUEST_CODE
+                            FILE_CHOOSER
                     );
 
                 } catch (Exception e) {
 
-                    if (filePathCallback != null) {
-                        filePathCallback.onReceiveValue(null);
-                        filePathCallback = null;
-                    }
+                    fileCallback.onReceiveValue(null);
+                    fileCallback = null;
                 }
 
                 return true;
             }
         });
 
-        webView.loadUrl("https://yasmine-chat.pages.dev/");
-
-        requestInitialPermissions();
-    }
-
-    private void requestInitialPermissions() {
-
-        ArrayList<String> permissions = new ArrayList<>();
-
-        if (ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.RECORD_AUDIO
-        ) != PackageManager.PERMISSION_GRANTED) {
-
-            permissions.add(Manifest.permission.RECORD_AUDIO);
-        }
-
-        if (ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.CAMERA
-        ) != PackageManager.PERMISSION_GRANTED) {
-
-            permissions.add(Manifest.permission.CAMERA);
-        }
-
-        if (!permissions.isEmpty()) {
-
-            ActivityCompat.requestPermissions(
-                    this,
-                    permissions.toArray(new String[0]),
-                    PERMISSION_REQUEST_CODE
-            );
-        }
-    }
-
-    private void requestPermissionsForWebView(
-            boolean needAudio,
-            boolean needCamera) {
-
-        ArrayList<String> permissions = new ArrayList<>();
-
-        if (needAudio &&
-                ContextCompat.checkSelfPermission(
-                        this,
-                        Manifest.permission.RECORD_AUDIO
-                ) != PackageManager.PERMISSION_GRANTED) {
-
-            permissions.add(Manifest.permission.RECORD_AUDIO);
-        }
-
-        if (needCamera &&
-                ContextCompat.checkSelfPermission(
-                        this,
-                        Manifest.permission.CAMERA
-                ) != PackageManager.PERMISSION_GRANTED) {
-
-            permissions.add(Manifest.permission.CAMERA);
-        }
-
-        if (!permissions.isEmpty()) {
-
-            ActivityCompat.requestPermissions(
-                    this,
-                    permissions.toArray(new String[0]),
-                    PERMISSION_REQUEST_CODE
-            );
-        }
+        webView.loadUrl(
+                "https://yasmine-chat.pages.dev/"
+        );
     }
 
     @Override
@@ -229,49 +224,55 @@ public class MainActivity extends AppCompatActivity {
                 grantResults
         );
 
-        if (requestCode != PERMISSION_REQUEST_CODE) {
+        if (pendingRequest == null) {
             return;
         }
 
-        if (pendingPermissionRequest == null) {
+        PermissionRequest request = pendingRequest;
+        pendingRequest = null;
+
+        if (grantResults.length == 0 ||
+                grantResults[0] != PackageManager.PERMISSION_GRANTED) {
+
+            request.deny();
             return;
         }
 
-        PermissionRequest request = pendingPermissionRequest;
-        pendingPermissionRequest = null;
-
-        boolean audioGranted =
-                ContextCompat.checkSelfPermission(
-                        this,
-                        Manifest.permission.RECORD_AUDIO
-                ) == PackageManager.PERMISSION_GRANTED;
-
-        boolean cameraGranted =
-                ContextCompat.checkSelfPermission(
-                        this,
-                        Manifest.permission.CAMERA
-                ) == PackageManager.PERMISSION_GRANTED;
-
-        boolean allowed = true;
+        ArrayList<String> allowed = new ArrayList<>();
 
         for (String resource : request.getResources()) {
 
             if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)
-                    && !audioGranted) {
+                    && ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED) {
 
-                allowed = false;
+                allowed.add(
+                        PermissionRequest.RESOURCE_AUDIO_CAPTURE
+                );
             }
 
             if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)
-                    && !cameraGranted) {
+                    && ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.CAMERA
+            ) == PackageManager.PERMISSION_GRANTED) {
 
-                allowed = false;
+                allowed.add(
+                        PermissionRequest.RESOURCE_VIDEO_CAPTURE
+                );
             }
         }
 
-        if (allowed) {
-            request.grant(request.getResources());
+        if (!allowed.isEmpty()) {
+
+            request.grant(
+                    allowed.toArray(new String[0])
+            );
+
         } else {
+
             request.deny();
         }
     }
@@ -288,21 +289,21 @@ public class MainActivity extends AppCompatActivity {
                 data
         );
 
-        if (requestCode != FILE_CHOOSER_REQUEST_CODE) {
-            return;
-        }
+        if (requestCode != FILE_CHOOSER ||
+                fileCallback == null) {
 
-        if (filePathCallback == null) {
             return;
         }
 
         Uri[] results = null;
 
-        if (resultCode == Activity.RESULT_OK && data != null) {
+        if (resultCode == Activity.RESULT_OK &&
+                data != null) {
 
             if (data.getClipData() != null) {
 
-                int count = data.getClipData().getItemCount();
+                int count =
+                        data.getClipData().getItemCount();
 
                 results = new Uri[count];
 
@@ -322,16 +323,20 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        filePathCallback.onReceiveValue(results);
-        filePathCallback = null;
+        fileCallback.onReceiveValue(results);
+        fileCallback = null;
     }
 
     @Override
     public void onBackPressed() {
 
-        if (webView.canGoBack()) {
+        if (webView != null &&
+                webView.canGoBack()) {
+
             webView.goBack();
+
         } else {
+
             super.onBackPressed();
         }
     }
@@ -339,9 +344,9 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
 
-        if (pendingPermissionRequest != null) {
-            pendingPermissionRequest.deny();
-            pendingPermissionRequest = null;
+        if (pendingRequest != null) {
+            pendingRequest.deny();
+            pendingRequest = null;
         }
 
         if (webView != null) {
